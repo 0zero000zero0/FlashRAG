@@ -1,5 +1,7 @@
 import os
+
 from flashrag.evaluator.metrics import BaseMetric
+from flashrag.dataset import Dataset
 
 
 class Evaluator:
@@ -11,11 +13,14 @@ class Evaluator:
 
         self.save_metric_flag = config["save_metric_score"]
         self.save_data_flag = config["save_intermediate_data"]
+        self.save_format = config.get("save_data_format", "json")
+        self.saved_jsonlines_name = config.get("saved_jsonlines_name", "intermediate_data.jsonl")
+        self.saved_json_name = config.get("saved_json_name", "intermediate_data.json")
         self.metrics = [metric.lower() for metric in self.config["metrics"]]
 
         self.avaliable_metrics = self._collect_metrics()
 
-        self.metric_class = {}  
+        self.metric_class = {}
         for metric in self.metrics:
             if metric in self.avaliable_metrics:
                 self.metric_class[metric] = self.avaliable_metrics[metric](self.config)
@@ -43,7 +48,7 @@ class Evaluator:
             avaliable_metrics[metric_name] = cls
         return avaliable_metrics
 
-    def evaluate(self, data):
+    def evaluate(self, data: Dataset):
         """Calculate all metric indicators and summarize them."""
 
         result_dict = {}
@@ -55,7 +60,8 @@ class Evaluator:
                 for metric_score, item in zip(metric_scores, data):
                     item.update_evaluation_score(metric, metric_score)
             except Exception as e:
-                print(f"Error in {metric}: {e}")
+                print(f"Error in {metric}!")
+                print(e)
                 continue
 
         if self.save_metric_flag:
@@ -72,10 +78,17 @@ class Evaluator:
             for k, v in result_dict.items():
                 f.write(f"{k}: {v}\n")
 
-    def save_data(self, data, file_name="intermediate_data.json"):
+    def save_data(self, data):
         """Save the evaluated data, including the raw data and the score of each data
         sample on each metric."""
 
-        save_path = os.path.join(self.save_dir, file_name)
-
-        data.save(save_path)
+        if self.save_format == "json":
+            save_path = os.path.join(self.save_dir, self.saved_json_name)
+            data.save_to_json(save_path)
+            print(f"intermidiate data is saved to {save_path}")
+        elif self.save_format == "jsonlines":
+            save_path = os.path.join(self.save_dir, self.saved_jsonlines_name)
+            data.save_to_jsonlines(save_path)
+            print(f"intermidiate data is saved to {save_path}")
+        else:
+            raise ValueError("Unkonw Saving Format. Only surpport json, jsonlines")

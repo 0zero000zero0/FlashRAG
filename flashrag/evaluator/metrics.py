@@ -283,7 +283,7 @@ class Retrieval_Precision(BaseMetric):
 class Rouge_Score(BaseMetric):
     metric_name = "rouge_score"
     cached_scores = {}
-    
+
     def __init__(self, config):
         super().__init__(config)
         from rouge import Rouge
@@ -370,7 +370,7 @@ class Rouge_L(Rouge_Score):
 class ZH_Rouge_Score(BaseMetric):
     metric_name = "zh_rouge_score"
     cached_scores = {}
-    
+
     def __init__(self, config):
         super().__init__(config)
         from rouge_chinese import Rouge
@@ -404,7 +404,7 @@ class ZH_Rouge_1(ZH_Rouge_Score):
 
     def __init__(self, config):
         super().__init__(config)
-        
+
 
     def calculate_metric(self, data):
         golden_answers_list = self.get_dataset_answer(data)
@@ -611,7 +611,7 @@ class GAOKAOMM_Accuracy(BaseMetric):
     metric_name = 'gaokao_acc'
     def __init__(self, config):
         super().__init__(config)
-    
+
     def calculate_metric(self, data):
         metric_dict = {}
         acc_list = []
@@ -638,7 +638,111 @@ class GAOKAOMM_Accuracy(BaseMetric):
             metric_dict[subject].append(acc)
         for key, value in metric_dict.items():
             metric_dict[key] = np.mean(value)
-        
+
         metric_dict['avg_score'] = np.mean(acc_list)
-        return metric_dict, acc_list 
-                
+        return metric_dict, acc_list
+
+
+class CoverExactMatch1(BaseMetric):
+    """Cover exact match 1 - checks if all ground truth tokens exist in prediction regardless of order"""
+
+    metric_name = "cover_em_1"
+
+    def __init__(self, config):
+        super().__init__(config)
+
+    def bool_mapping(self, text):
+        """Convert boolean-like strings to standardized format"""
+        if isinstance(text, str):
+            text = text.lower().strip()
+            if text in ["yes", "true", "1", "y"]:
+                return "true"
+            elif text in ["no", "false", "0", "n"]:
+                return "false"
+        return str(text)
+
+    def calculate_cover_em_1(self, prediction: str, golden_answers: list) -> float:
+        if isinstance(golden_answers, str):
+            golden_answers = [golden_answers]
+
+        for golden_answer in golden_answers:
+            pred_normalized = normalize_answer(self.bool_mapping(prediction))
+            golden_normalized = normalize_answer(self.bool_mapping(golden_answer))
+
+            pred_list = pred_normalized.split(" ")
+            golden_list = golden_normalized.split(" ")
+
+            # Check if all ground truth elements exist in prediction (order independent)
+            if all(ground in pred_list for ground in golden_list):
+                return 1.0
+
+        return 0.0
+
+    def calculate_metric(self, data):
+        pred_list = data.pred
+        golden_answers_list = self.get_dataset_answer(data)
+
+        metric_score_list = [
+            self.calculate_cover_em_1(pred, golden_answers)
+            for pred, golden_answers in zip(pred_list, golden_answers_list)
+        ]
+        em_score = sum(metric_score_list) / len(metric_score_list)
+
+        return {"cover_em_1": em_score}, metric_score_list
+
+
+class CoverExactMatch2(BaseMetric):
+    """Cover exact match 2 - sliding window approach to check if ground truth appears as contiguous sequence in prediction"""
+
+    metric_name = "cover_em_2"
+
+    def __init__(self, config):
+        super().__init__(config)
+
+    def bool_mapping(self, text):
+        """Convert boolean-like strings to standardized format"""
+        if isinstance(text, str):
+            text = text.lower().strip()
+            if text in ["yes", "true", "1", "y"]:
+                return "true"
+            elif text in ["no", "false", "0", "n"]:
+                return "false"
+        return str(text)
+
+    def calculate_cover_em_2(self, prediction: str, golden_answers: list) -> float:
+        if isinstance(golden_answers, str):
+            golden_answers = [golden_answers]
+
+        for golden_answer in golden_answers:
+            pred_normalized = normalize_answer(self.bool_mapping(prediction))
+            golden_normalized = normalize_answer(self.bool_mapping(golden_answer))
+
+            pred_list = pred_normalized.split(" ")
+            golden_list = golden_normalized.split(" ")
+
+            # Sliding window comparison
+            if len(golden_list) <= len(pred_list):
+                for i in range(len(pred_list) - len(golden_list) + 1):
+                    if pred_list[i:i + len(golden_list)] == golden_list:
+                        return 1.0
+
+            # If ground truth is longer than prediction, check by joining strings
+            pred_str = " ".join(pred_list)
+            golden_str = " ".join(golden_list)
+
+            if golden_str in pred_str:
+                return 1.0
+
+        return 0.0
+
+    def calculate_metric(self, data):
+        pred_list = data.pred
+        golden_answers_list = self.get_dataset_answer(data)
+
+        metric_score_list = [
+            self.calculate_cover_em_2(pred, golden_answers)
+            for pred, golden_answers in zip(pred_list, golden_answers_list)
+        ]
+        em_score = sum(metric_score_list) / len(metric_score_list)
+
+        return {"cover_em_2": em_score}, metric_score_list
